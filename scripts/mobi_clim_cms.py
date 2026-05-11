@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import sys
+import urllib.parse
 import urllib.error
 import urllib.request
 import uuid
@@ -37,10 +38,10 @@ def load_payload(path: str) -> object:
 def request_json(
     method: str,
     url: str,
-    payload: object,
+    payload: object | None,
     token: str,
 ) -> tuple[int, object]:
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         url,
         data=body,
@@ -63,6 +64,14 @@ def request_json(
         except json.JSONDecodeError:
             parsed_error = {"error": error_body or error.reason}
         return error.code, parsed_error
+
+
+def append_query(url: str, params: dict[str, str | None]) -> str:
+    query = {name: value for name, value in params.items() if value not in (None, "")}
+    if not query:
+        return url
+
+    return f"{url}?{urllib.parse.urlencode(query)}"
 
 
 def request_multipart(
@@ -158,9 +167,45 @@ def build_parser() -> argparse.ArgumentParser:
     create = subparsers.add_parser("create", help="Create a CMS page.")
     create.add_argument("payload", help="JSON payload file, or - for stdin.")
 
+    list_pages = subparsers.add_parser("list", help="List CMS pages.")
+    list_pages.add_argument("--status", choices=("DRAFT", "PUBLISHED"))
+    list_pages.add_argument(
+        "--type",
+        choices=("LEGAL", "MARKETING", "FAQ", "LANDING", "SYSTEM"),
+    )
+    list_pages.add_argument("--search", help="Search title, slug, or excerpt.")
+    list_pages.add_argument("--slug", help="Filter by exact slug.")
+    list_pages.add_argument("--take", type=int, help="Page size.")
+    list_pages.add_argument("--cursor", help="Pagination cursor.")
+    list_pages.add_argument(
+        "--include-content",
+        action="store_true",
+        help="Include Markdown, JSON, and rendered HTML.",
+    )
+
+    get = subparsers.add_parser("get", help="Get a CMS page.")
+    get.add_argument("page_id", help="CMS page id.")
+    get.add_argument(
+        "--include-content",
+        action="store_true",
+        help="Include Markdown, JSON, and rendered HTML.",
+    )
+
     update = subparsers.add_parser("update", help="Update a CMS page.")
     update.add_argument("page_id", help="CMS page id.")
     update.add_argument("payload", help="JSON payload file, or - for stdin.")
+
+    batch_upsert = subparsers.add_parser(
+        "batch-upsert",
+        help="Create or update up to 50 CMS pages by slug.",
+    )
+    batch_upsert.add_argument("payload", help="JSON payload file, or - for stdin.")
+
+    batch_update = subparsers.add_parser(
+        "batch-update",
+        help="Publish or schedule up to 50 CMS pages by ids or slugs.",
+    )
+    batch_update.add_argument("payload", help="JSON payload file, or - for stdin.")
 
     upload = subparsers.add_parser("upload", help="Upload a CMS media asset.")
     upload.add_argument("file", help="Image file path.")
@@ -192,10 +237,42 @@ def main() -> int:
         method = "POST"
         url = f"{base_url}/api/admin/cms/pages"
         status, response = request_json(method, url, payload, args.token)
+    elif args.command == "list":
+        url = append_query(
+            f"{base_url}/api/admin/cms/pages",
+            {
+                "status": args.status,
+                "type": args.type,
+                "search": args.search,
+                "slug": args.slug,
+                "take": str(args.take) if args.take else None,
+                "cursor": args.cursor,
+                "includeContent": "true" if args.include_content else None,
+            },
+        )
+        status, response = request_json("GET", url, None, args.token)
+    elif args.command == "get":
+        url = append_query(
+            f"{base_url}/api/admin/cms/pages/{args.page_id}",
+            {
+                "includeContent": "true" if args.include_content else None,
+            },
+        )
+        status, response = request_json("GET", url, None, args.token)
     elif args.command == "update":
         payload = load_payload(args.payload)
         method = "PATCH"
         url = f"{base_url}/api/admin/cms/pages/{args.page_id}"
+        status, response = request_json(method, url, payload, args.token)
+    elif args.command == "batch-upsert":
+        payload = load_payload(args.payload)
+        method = "POST"
+        url = f"{base_url}/api/admin/cms/pages/batch"
+        status, response = request_json(method, url, payload, args.token)
+    elif args.command == "batch-update":
+        payload = load_payload(args.payload)
+        method = "PATCH"
+        url = f"{base_url}/api/admin/cms/pages/batch"
         status, response = request_json(method, url, payload, args.token)
     else:
         url = f"{base_url}/api/cms/media"
