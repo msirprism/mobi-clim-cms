@@ -1,6 +1,6 @@
 ---
 name: mobi-clim-cms
-description: Manage the Mobi-Clim CMS page and media control API. Use when Codex needs to list, get, create, batch upsert, update, publish, schedule, unpublish, upload media, or document CMS content programmatically through the Mobi-Clim routes GET/POST /api/admin/cms/pages, GET/PATCH /api/admin/cms/pages/:pageId, POST/PATCH /api/admin/cms/pages/batch, POST /api/cron/mobi-clim/cms-publishing, and POST /api/cms/media, including Markdown content, SEO fields, Open Graph fields, media assets, slugs, statuses, scheduledAt, and page types.
+description: Manage the Mobi-Clim CMS page, media control API, and brand-aligned CMS article images. Use when Codex needs to list, get, create, batch upsert, update, publish, schedule, unpublish, upload media, generate article imagery with imagegen using the bundled Mobi-Clim brand kit, or document CMS content programmatically through the Mobi-Clim routes GET/POST /api/admin/cms/pages, GET/PATCH /api/admin/cms/pages/:pageId, POST/PATCH /api/admin/cms/pages/batch, POST /api/cron/mobi-clim/cms-publishing, and POST /api/cms/media, including Markdown content, SEO fields, Open Graph fields, media assets, slugs, statuses, scheduledAt, and page types.
 ---
 
 # Mobi-Clim CMS
@@ -56,6 +56,51 @@ Optional for create/update:
 - `scheduledAt`: ISO datetime for scheduled publication. Only use with draft/scheduled pages, not immediate `PUBLISHED` payloads.
 
 Use `contentMarkdown` by default. It supports the same Markdown and custom CMS blocks as the admin editor. Use `contentJson` only when the caller already has a compatible CMS/Tiptap document.
+
+## CMS Article Image Generation
+
+When creating an image for a Mobi-Clim CMS article, Open Graph image, blog thumbnail, social preview, or in-article visual, use the `imagegen` skill and the bundled brand-kit boards as image-brand references before generating.
+
+Brand-kit reference files:
+
+- `brand-kit/mobi-clim-brand-kit-overview.png`: overall identity, palette, typography, logo usage, icons, and brand applications.
+- `brand-kit/mobi-clim-brand-kit-ui-product.png`: website, reservation, checkout, CMS, admin, and mobile UI direction.
+- `brand-kit/mobi-clim-brand-kit-content-campaign.png`: CMS covers, social formats, seasonal campaign images, delivery, packaging, and photo rules.
+
+Reference selection:
+
+- Use `mobi-clim-brand-kit-content-campaign.png` by default for article hero images, Open Graph images, CMS covers, and social crops.
+- Add `mobi-clim-brand-kit-overview.png` when the image must strongly express the core brand system.
+- Use `mobi-clim-brand-kit-ui-product.png` when the image includes product UI, booking screens, payment, admin, or CMS interface mockups.
+
+Before calling `imagegen`, inspect the selected brand-kit image(s) with `view_image` so they are visible in the conversation context and can be used as style/reference images.
+
+Default image direction:
+
+- Brand: French mobile air-conditioner rental, easy summer comfort, no installation, delivery and pickup, secure online booking.
+- Visual world: warm daylight interiors, clean apartments/offices, mobile air conditioner near a window, subtle airflow lines, practical local service.
+- Palette: dark surface `#101413`, deep surface `#10192d`, champagne `#e9c58a`, bronze `#d4af72`, teal `#2a8277`, coral action `#e95e4f`, off-white `#f7f5f2`, muted grey `#647082`.
+- Typography/UI feel: Geist-like modern sans, shadcn/ui-style controls, modest radius, crisp spacing, restrained shadows.
+- Text: avoid text inside generated article images unless the user explicitly asks for it. If text is needed, keep it short, French, and quote it verbatim in the prompt.
+- Avoid: generic stock HVAC imagery, beach/pool scenes, medical or emergency imagery, purple/blue SaaS gradients, fake bank logos, cluttered ad collages, excessive snowflakes, illegible tiny copy, and watermarks.
+
+Prompt scaffold:
+
+```text
+Use case: ads-marketing
+Asset type: Mobi-Clim CMS article image / Open Graph image
+Input images: selected Mobi-Clim brand-kit board(s) as brand references
+Primary request: <article topic and intended placement>
+Scene/backdrop: warm daylight French interior with mobile air conditioner, clean and realistic
+Subject: <specific article subject, e.g. canicule, location Airbnb, appartement, bureau>
+Style/medium: premium editorial product-lifestyle image aligned with the Mobi-Clim brand kit
+Composition/framing: CMS cover / OG-ready landscape, clear focal point, safe crop margins
+Color palette: #101413, #10192d, #e9c58a, #d4af72, #2a8277, #e95e4f, #f7f5f2, #647082
+Constraints: brand-aligned, practical, local, trustworthy, no watermark, no fake logos
+Avoid: clutter, unrelated appliances, beach/pool imagery, medical tone, illegible text
+```
+
+For CMS-bound generated images, copy the final selected image out of the default imagegen folder into a stable local path before upload, then upload it with `scripts/mobi_clim_cms.py upload`. Use a descriptive French `alt` and optional `caption`. Use the returned media `id` as `ogImageId` when the image is the page Open Graph image, and use the returned `url` in Markdown when embedding it in the article body.
 
 ## Page Listing
 
