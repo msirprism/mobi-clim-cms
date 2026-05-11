@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mobi-Clim CMS"
+  short_description: "Piloter les pages CMS Mobi-Clim"
+  default_prompt: "Use $mobi-clim-cms to create or update a Mobi-Clim CMS page through the API."
