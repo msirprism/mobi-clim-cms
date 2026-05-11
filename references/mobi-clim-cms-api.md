@@ -5,10 +5,11 @@
 Routes accept either:
 
 - an authenticated Better Auth admin session cookie; or
-- `Authorization: Bearer <MOBI_CLIM_CMS_API_TOKEN>`.
+- `Authorization: Bearer <generated-cms-api-key>` or `Authorization: Bearer <MOBI_CLIM_CMS_API_TOKEN>`.
 
-For bearer auth, the deployed app must also set `MOBI_CLIM_CMS_API_USER_ID` to an
-existing admin user id. That user is used for page revisions and audit logs.
+For the legacy env bearer token, the deployed app must also set
+`MOBI_CLIM_CMS_API_USER_ID` to an existing admin user id. Generated CMS API keys use
+the admin user that created the key for revisions and audit logs.
 
 ## Endpoints
 
@@ -41,6 +42,73 @@ Examples:
 
 ```json
 { "status": "DRAFT" }
+```
+
+### List Media
+
+`GET /api/cms/media?search=salon&take=80`
+
+Returns recent media assets. `take` is clamped between 1 and 120.
+
+Response shape:
+
+```json
+{
+  "assets": [
+    {
+      "id": "media_asset_id",
+      "url": "/api/media/cms/example.avif",
+      "storageKey": "cms/example.avif",
+      "fileName": "example.avif",
+      "mimeType": "image/avif",
+      "sizeBytes": 42000,
+      "width": 1600,
+      "height": 900,
+      "alt": "Salon climatise",
+      "caption": "Location Mobi-Clim",
+      "source": "r2",
+      "uploadedById": "admin_user_id",
+      "createdAt": "2026-05-11T10:00:00.000Z",
+      "updatedAt": "2026-05-11T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Upload Media
+
+`POST /api/cms/media`
+
+Content type: `multipart/form-data`
+
+Fields:
+
+- `file`: required image file.
+- `alt`: optional alt text.
+- `caption`: optional caption.
+- `format`: optional. `avif` by default. Use `source` or `original` to preserve the input format.
+
+Supported input types: JPEG, PNG, WebP, GIF, AVIF.
+
+CMS media uploads are converted to AVIF by default. The response `id` can be used as
+`ogImageId` in page payloads, and the response `url` can be used in Markdown image
+syntax.
+
+Response shape:
+
+```json
+{
+  "id": "media_asset_id",
+  "url": "/api/media/cms/example.avif",
+  "alt": "Salon climatise",
+  "caption": "Location Mobi-Clim",
+  "fileName": "example.avif",
+  "mimeType": "image/avif",
+  "sizeBytes": 42000,
+  "width": 1600,
+  "height": 900,
+  "storageKey": "cms/example.avif"
+}
 ```
 
 ## Supported Fields
@@ -116,4 +184,4 @@ CTA button:
 - `401`: missing/invalid admin session or bearer token.
 - `404`: update target page not found.
 - `409`: duplicate slug.
-- `500`: bearer auth configured without a valid admin actor.
+- `500`: bearer auth configured without a valid admin actor, or media storage unavailable.

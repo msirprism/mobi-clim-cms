@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Small CLI for the Mobi-Clim CMS page API."""
+"""Small CLI for the Mobi-Clim CMS page and media API."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import mimetypes
 import os
 import sys
 import urllib.error
 import urllib.request
+import uuid
 
 
 def default_base_url() -> str | None:
@@ -63,9 +65,77 @@ def request_json(
         return error.code, parsed_error
 
 
+def request_multipart(
+    method: str,
+    url: str,
+    fields: dict[str, str],
+    file_field: str,
+    file_path: str,
+    token: str,
+) -> tuple[int, object]:
+    boundary = f"----mobi-clim-cms-{uuid.uuid4().hex}"
+    body_parts: list[bytes] = []
+
+    for name, value in fields.items():
+        body_parts.extend(
+            [
+                f"--{boundary}\r\n".encode("utf-8"),
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(
+                    "utf-8",
+                ),
+                value.encode("utf-8"),
+                b"\r\n",
+            ],
+        )
+
+    filename = os.path.basename(file_path)
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    with open(file_path, "rb") as media_file:
+        file_bytes = media_file.read()
+
+    body_parts.extend(
+        [
+            f"--{boundary}\r\n".encode("utf-8"),
+            (
+                f'Content-Disposition: form-data; name="{file_field}"; '
+                f'filename="{filename}"\r\n'
+            ).encode("utf-8"),
+            f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
+            file_bytes,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode("utf-8"),
+        ],
+    )
+
+    body = b"".join(body_parts)
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            response_body = response.read().decode("utf-8")
+            return response.status, json.loads(response_body)
+    except urllib.error.HTTPError as error:
+        error_body = error.read().decode("utf-8")
+        try:
+            parsed_error: object = json.loads(error_body)
+        except json.JSONDecodeError:
+            parsed_error = {"error": error_body or error.reason}
+        return error.code, parsed_error
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Create or update Mobi-Clim CMS pages through the API.",
+        description="Create/update Mobi-Clim CMS pages and upload CMS media through the API.",
     )
     parser.add_argument(
         "--base-url",
@@ -92,6 +162,17 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("page_id", help="CMS page id.")
     update.add_argument("payload", help="JSON payload file, or - for stdin.")
 
+    upload = subparsers.add_parser("upload", help="Upload a CMS media asset.")
+    upload.add_argument("file", help="Image file path.")
+    upload.add_argument("--alt", default="", help="Image alt text.")
+    upload.add_argument("--caption", default="", help="Image caption.")
+    upload.add_argument(
+        "--format",
+        default="avif",
+        choices=("avif", "source", "original"),
+        help="Stored media format. Defaults to avif.",
+    )
+
     return parser
 
 
@@ -104,17 +185,33 @@ def main() -> int:
     if not args.token:
         parser.error("Missing --token or MOBI_CLIM_CMS_API_TOKEN")
 
-    payload = load_payload(args.payload)
     base_url = args.base_url.rstrip("/")
 
     if args.command == "create":
+        payload = load_payload(args.payload)
         method = "POST"
         url = f"{base_url}/api/admin/cms/pages"
-    else:
+        status, response = request_json(method, url, payload, args.token)
+    elif args.command == "update":
+        payload = load_payload(args.payload)
         method = "PATCH"
         url = f"{base_url}/api/admin/cms/pages/{args.page_id}"
+        status, response = request_json(method, url, payload, args.token)
+    else:
+        url = f"{base_url}/api/cms/media"
+        status, response = request_multipart(
+            "POST",
+            url,
+            {
+                "alt": args.alt,
+                "caption": args.caption,
+                "format": args.format,
+            },
+            "file",
+            args.file,
+            args.token,
+        )
 
-    status, response = request_json(method, url, payload, args.token)
     print(
         json.dumps(
             response,
