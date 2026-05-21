@@ -1,11 +1,11 @@
 ---
 name: mobi-clim-cms
-description: Manage the Mobi-Clim CMS page, media control API, and brand-aligned CMS article images. Use when Codex needs to list, get, create, batch upsert, update, publish, schedule, unpublish, upload media, generate article imagery with imagegen using the bundled Mobi-Clim brand kit, or document CMS content programmatically through the Mobi-Clim routes GET/POST /api/admin/cms/pages, GET/PATCH /api/admin/cms/pages/:pageId, POST/PATCH /api/admin/cms/pages/batch, POST /api/cron/mobi-clim/cms-publishing, and POST /api/cms/media, including Markdown content, SEO fields, Open Graph fields, media assets, slugs, statuses, scheduledAt, and page types.
+description: Manage the Mobi-Clim CMS and CMS-authenticated admin API. Use when Codex needs to list, get, create, batch upsert, update, publish, schedule, unpublish, upload media, generate article imagery with imagegen using the bundled Mobi-Clim brand kit, or document CMS content programmatically through the Mobi-Clim routes GET/POST /api/admin/cms/pages, GET/PATCH /api/admin/cms/pages/:pageId, POST/PATCH /api/admin/cms/pages/batch, GET/POST /api/admin/cms/orders, GET/PATCH/DELETE /api/admin/cms/orders/:orderId, GET/POST /api/admin/cms/users, GET/PATCH/DELETE /api/admin/cms/users/:userId, GET /api/admin/cms/email-logs, GET/DELETE /api/admin/cms/email-logs/:logId, POST /api/cron/mobi-clim/cms-publishing, and POST /api/cms/media.
 ---
 
 # Mobi-Clim CMS
 
-Use Mobi-Clim CMS to operate Mobi-Clim CMS pages and media through the programmatic API instead of the admin UI.
+Use Mobi-Clim CMS to operate CMS pages, media, orders, users, and email logs through the programmatic API instead of the admin UI.
 
 ## Workflow
 
@@ -25,14 +25,29 @@ Use Mobi-Clim CMS to operate Mobi-Clim CMS pages and media through the programma
    - Update/publish/unpublish: `PATCH /api/admin/cms/pages/:pageId`
    - Batch upsert by slug, up to 50 pages: `POST /api/admin/cms/pages/batch`
    - Batch publish or schedule, up to 50 pages: `PATCH /api/admin/cms/pages/batch`
+   - List/search orders: `GET /api/admin/cms/orders`
+   - Get one order: `GET /api/admin/cms/orders/:orderId`
+   - Create an order: `POST /api/admin/cms/orders`
+   - Update order status or note: `PATCH /api/admin/cms/orders/:orderId`
+   - Cancel an order: `DELETE /api/admin/cms/orders/:orderId`
+   - List/search users: `GET /api/admin/cms/users`
+   - Get one user: `GET /api/admin/cms/users/:userId`
+   - Create a user: `POST /api/admin/cms/users`
+   - Update a user: `PATCH /api/admin/cms/users/:userId`
+   - Delete a user without attached orders: `DELETE /api/admin/cms/users/:userId`
+   - List/search email logs: `GET /api/admin/cms/email-logs`
+   - Get or delete an audited email log: `GET/DELETE /api/admin/cms/email-logs/:logId`
    - Upload media: `POST /api/cms/media`
    - Publish due scheduled pages: `POST /api/cron/mobi-clim/cms-publishing`
 5. Verify the response includes `page.id`, `page.slug`, `page.status`, `editPath`, `previewPath`, and, for published pages, `publicPath`.
    - For list responses, verify `pages[]` and `nextCursor`.
    - For batch responses, verify `results[]`, `summary`, and any `missing` selectors.
    - For media uploads, verify `id`, `url`, `mimeType`, `sizeBytes`, `width`, and `height`.
+   - For order responses, verify `order.id`, `order.orderNumber`, `status`, `paymentStatus`, monetary totals, addresses, items, payments, invoices, and shipments.
+   - For user responses, verify `user.id`, `email`, `role`, account flags, profile fields, and counts.
+   - For email log responses, verify `emailLogs[]` or `emailLog`, `status`, `source`, `event`, `recipient`, `subject`, `entityType`, and `entityId`.
 
-## Payload Fields
+## Page Payload Fields
 
 Required for create:
 
@@ -56,6 +71,79 @@ Optional for create/update:
 - `scheduledAt`: ISO datetime for scheduled publication. Only use with draft/scheduled pages, not immediate `PUBLISHED` payloads.
 
 Use `contentMarkdown` by default. It supports the same Markdown and custom CMS blocks as the admin editor. Use `contentJson` only when the caller already has a compatible CMS/Tiptap document.
+
+## Admin Resources
+
+The CMS bearer key now also authorizes operational admin resources under `/api/admin/cms`. Treat these endpoints as admin-only and audit-sensitive.
+
+Order routes:
+
+- `GET /api/admin/cms/orders`: filters `status`, `paymentStatus`, `search`, `take`, `cursor`.
+- `GET /api/admin/cms/orders/:orderId`: returns the order with addresses, items, payments, VosFactures invoices, shipments, labels, and recent tracking events.
+- `POST /api/admin/cms/orders`: creates a `PENDING_PAYMENT` order through the same server-side checkout logic as the public reservation flow. This keeps rental duration, pricing, deposit, delivery fee, stock checks, snapshots, notifications, and audit logs server-authoritative.
+- `PATCH /api/admin/cms/orders/:orderId`: accepts `status`, `internalNote`, `reason`, and optional `override`. Status changes go through the audited order workflow and synchronize availability blocks.
+- `DELETE /api/admin/cms/orders/:orderId`: cancels the order through the audited cancellation workflow. It does not physically delete historical order data. Query params: `reason`, `overrideDelivered=true`.
+
+Do not use the CMS API to mutate payment records directly. Payment state remains driven by Credit Agricole callbacks, payment retry flows, or existing admin workflow helpers.
+
+Order create payload:
+
+```json
+{
+  "items": [{ "productId": "product_id", "quantity": 1 }],
+  "startsAt": "2026-06-15",
+  "endsAt": "2026-06-17",
+  "customer": {
+    "firstName": "Ada",
+    "lastName": "Lovelace",
+    "email": "ada@example.com",
+    "phone": "0600000000",
+    "line1": "10 rue de Paris",
+    "postalCode": "75001",
+    "city": "Paris",
+    "country": "FR"
+  },
+  "acceptedTerms": true
+}
+```
+
+Order patch payload:
+
+```json
+{
+  "status": "CONFIRMED",
+  "reason": "Validation opérateur",
+  "internalNote": "Client appelé le matin."
+}
+```
+
+User routes:
+
+- `GET /api/admin/cms/users`: filters `role`, `search`, `take`, `cursor`.
+- `GET /api/admin/cms/users/:userId`: returns account flags, profile fields, metadata, and counts.
+- `POST /api/admin/cms/users`: creates a user. Optional `password` creates a credential account with a hashed password.
+- `PATCH /api/admin/cms/users/:userId`: updates identity, role, verification/ban flags, profile fields, and metadata.
+- `DELETE /api/admin/cms/users/:userId`: physically deletes only users with no attached orders. For customers with orders, use a ban/update flow instead of deletion to preserve order history.
+
+User create payload:
+
+```json
+{
+  "name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "role": "user",
+  "emailVerified": false,
+  "phone": "0600000000"
+}
+```
+
+Email log routes:
+
+- `GET /api/admin/cms/email-logs`: filters `status` (`all`, `sent`, `skipped`, `error`), `source` (`all`, `order`, `manual`, `contact`), `search`, `take`, `cursor`.
+- `GET /api/admin/cms/email-logs/:logId`: returns one audited or derived email log.
+- `DELETE /api/admin/cms/email-logs/:logId`: deletes an audited email log and writes a deletion audit record. Derived contact logs such as `contactSubmissionId:client` or `contactSubmissionId:admin` cannot be deleted because they are computed from contact submission columns.
+
+Email logs are not stored in a single dedicated table. Order and manual email logs come from `AuditLog` records whose action starts with `email.`. Contact email logs are derived from contact submission email timestamp/error columns.
 
 ## CMS Article Image Generation
 
@@ -282,6 +370,19 @@ python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py up
 python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py batch-upsert batch-pages.json
 python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py batch-update batch-publication.json
 python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py upload image.jpg --alt "Image alt"
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py list-orders --status PAID --take 50
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py get-order <orderId>
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py create-order order.json
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py update-order <orderId> order-patch.json
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py cancel-order <orderId> --reason "Annulation client"
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py list-users --role admin
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py get-user <userId>
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py create-user user.json
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py update-user <userId> user-patch.json
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py delete-user <userId>
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py list-email-logs --source order --status error
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py get-email-log <logId>
+python3 /Users/msirprism/.codex/skills/mobi-clim-cms/scripts/mobi_clim_cms.py delete-email-log <logId>
 ```
 
 The script reads:

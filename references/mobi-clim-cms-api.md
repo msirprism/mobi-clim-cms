@@ -326,7 +326,315 @@ Response shape:
 }
 ```
 
-## Supported Fields
+### List Orders
+
+`GET /api/admin/cms/orders`
+
+Query parameters:
+
+- `status`: optional `OrderStatus`, for example `PAID`, `CONFIRMED`, `SCHEDULED`, `CANCELLED`, or `PAYMENT_FAILED`.
+- `paymentStatus`: optional `PaymentStatus`, for example `PENDING`, `PAID`, `FAILED`, `CANCELLED`, or `REFUNDED`.
+- `search`: optional text search across order number, email, and phone.
+- `take`: optional page size, clamped server-side to 1-100.
+- `cursor`: optional order id cursor for pagination.
+
+Response shape:
+
+```json
+{
+  "orders": [
+    {
+      "id": "order_id",
+      "orderNumber": "MC-123",
+      "userId": "user_id",
+      "email": "client@example.com",
+      "phone": "0600000000",
+      "status": "PAID",
+      "paymentStatus": "PAID",
+      "subtotalCents": 7800,
+      "depositTotalCents": 22200,
+      "deliveryFeeCents": 0,
+      "totalCents": 30000,
+      "currency": "EUR",
+      "startsAt": "2026-06-15T00:00:00.000Z",
+      "endsAt": "2026-06-16T00:00:00.000Z",
+      "rentalDays": 2,
+      "isPreorder": true,
+      "internalNote": null,
+      "deliveryAddress": {
+        "firstName": "Ada",
+        "lastName": "Lovelace",
+        "postalCode": "75001",
+        "city": "Paris"
+      },
+      "items": [
+        {
+          "id": "item_id",
+          "productId": "product_id",
+          "productNameSnapshot": "Climatiseur mobile",
+          "unitDailyPriceCents": 3900,
+          "quantity": 1,
+          "rentalDays": 2,
+          "lineRentalTotalCents": 7800,
+          "lineDepositTotalCents": 22200
+        }
+      ],
+      "payments": [],
+      "vosfacturesInvoices": [],
+      "shipments": [],
+      "createdAt": "2026-05-20T10:00:00.000Z",
+      "updatedAt": "2026-05-20T10:00:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+### Get Order
+
+`GET /api/admin/cms/orders/:orderId`
+
+Returns one order using the same shape as list items, including addresses, items,
+payments, VosFactures invoices, shipments, labels, and recent tracking events.
+
+### Create Order
+
+`POST /api/admin/cms/orders`
+
+Creates a `PENDING_PAYMENT` order through the server-side checkout/order service. The
+server recalculates rental days, pricing, deposit, delivery fee, stock availability,
+snapshots, notifications, invoices, and audit logs. Do not send computed totals from
+the client.
+
+Payload shape:
+
+```json
+{
+  "items": [
+    {
+      "productId": "product_id",
+      "quantity": 1
+    }
+  ],
+  "startsAt": "2026-06-15",
+  "endsAt": "2026-06-17",
+  "customer": {
+    "firstName": "Ada",
+    "lastName": "Lovelace",
+    "email": "ada@example.com",
+    "phone": "0600000000",
+    "companyName": "Ada Conseil",
+    "line1": "10 rue de Paris",
+    "line2": null,
+    "postalCode": "75001",
+    "city": "Paris",
+    "country": "FR",
+    "deliveryNotes": "Digicode 1234"
+  },
+  "billingAddress": null,
+  "shipping": {
+    "method": "home_standard"
+  },
+  "acceptedTerms": true
+}
+```
+
+Legacy single-item shape is also accepted with `productId` and `quantity` instead of
+`items`.
+
+### Update Order
+
+`PATCH /api/admin/cms/orders/:orderId`
+
+Updates `status` and/or `internalNote`.
+
+Payload fields:
+
+- `status`: optional `OrderStatus`. The transition must be allowed unless `override` is true.
+- `internalNote`: optional string or null.
+- `reason`: optional reason stored in the audit log.
+- `override`: optional boolean for exceptional status corrections.
+
+Example:
+
+```json
+{
+  "status": "CONFIRMED",
+  "reason": "Validation opérateur",
+  "internalNote": "Client appelé le matin."
+}
+```
+
+Status updates go through `applyOrderStatusTransition`, create audit logs, synchronize
+availability blocks, and trigger existing confirmation/scheduling side effects where
+applicable.
+
+### Cancel Order
+
+`DELETE /api/admin/cms/orders/:orderId?reason=Annulation%20client`
+
+Cancels an order through the audited cancellation workflow. This endpoint does not
+physically delete historical order records.
+
+Query parameters:
+
+- `reason`: optional. Defaults to `Annulation via API CMS`.
+- `overrideDelivered`: optional `true` or `1`. Allows cancellation after delivered/rental states.
+
+### List Users
+
+`GET /api/admin/cms/users`
+
+Query parameters:
+
+- `role`: optional role filter, for example `admin` or `user`.
+- `search`: optional text search across name, email, and phone.
+- `take`: optional page size, clamped server-side to 1-100.
+- `cursor`: optional user id cursor for pagination.
+
+Response shape:
+
+```json
+{
+  "users": [
+    {
+      "id": "user_id",
+      "name": "Ada Lovelace",
+      "email": "ada@example.com",
+      "emailVerified": false,
+      "role": "user",
+      "banned": false,
+      "banReason": null,
+      "phone": "0600000000",
+      "company": "Ada Conseil",
+      "metadata": null,
+      "counts": {
+        "orders": 1,
+        "sessions": 0,
+        "accounts": 1
+      },
+      "createdAt": "2026-05-20T10:00:00.000Z",
+      "updatedAt": "2026-05-20T10:00:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+### Get User
+
+`GET /api/admin/cms/users/:userId`
+
+Returns one user using the same shape as list items.
+
+### Create User
+
+`POST /api/admin/cms/users`
+
+Payload fields:
+
+- `name`: required.
+- `email`: required, unique, normalized to lowercase.
+- `password`: optional. When present, creates a credential account with a hashed password.
+- `role`: optional, `user` by default. Accepted values: `user`, `admin`.
+- `emailVerified`: optional boolean.
+- `phone`, `company`, `jobTitle`: optional strings or null.
+- `metadata`: optional JSON.
+
+Example:
+
+```json
+{
+  "name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "role": "user",
+  "emailVerified": false,
+  "phone": "0600000000"
+}
+```
+
+### Update User
+
+`PATCH /api/admin/cms/users/:userId`
+
+Payload may contain any of:
+
+- `name`, `email`, `role`, `emailVerified`, `banned`, `banReason`
+- `phone`, `bio`, `company`, `jobTitle`, `department`, `location`
+- `websiteUrl`, `linkedinUrl`, `githubUrl`, `xUrl`
+- `metadata`
+
+Empty objects are rejected. Email uniqueness is enforced. Updates are audited.
+
+### Delete User
+
+`DELETE /api/admin/cms/users/:userId`
+
+Physically deletes a user only when the user has no attached orders. If orders exist,
+the endpoint rejects deletion so historical order records remain valid. Use `PATCH` to
+ban or update such users instead.
+
+### List Email Logs
+
+`GET /api/admin/cms/email-logs`
+
+Query parameters:
+
+- `status`: optional. `all`, `sent`, `skipped`, or `error`. Defaults to `all`.
+- `source`: optional. `all`, `order`, `manual`, or `contact`. Defaults to `all`.
+- `search`: optional text search across log fields.
+- `take`: optional page size, clamped server-side to 1-100.
+- `cursor`: optional audit log id cursor for pagination.
+
+Response shape:
+
+```json
+{
+  "emailLogs": [
+    {
+      "id": "audit_log_id",
+      "source": "order",
+      "event": "order_created_customer",
+      "action": "email.order_created_customer.sent",
+      "status": "sent",
+      "recipient": "client@example.com",
+      "subject": "Commande MC-123 créée",
+      "reference": "MC-123",
+      "detail": null,
+      "entityType": "order",
+      "entityId": "order_id",
+      "actor": null,
+      "after": {
+        "to": "client@example.com",
+        "subject": "Commande MC-123 créée",
+        "result": { "status": "sent" }
+      },
+      "createdAt": "2026-05-20T10:00:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Order and manual email logs come from `AuditLog` records whose action starts with
+`email.`. Contact email logs are derived from contact submission email timestamp/error
+columns and use ids like `contact_submission_id:client` or
+`contact_submission_id:admin`.
+
+### Get Email Log
+
+`GET /api/admin/cms/email-logs/:logId`
+
+Returns one email log. When the id contains `:`, URL-encode the id path segment.
+
+### Delete Email Log
+
+`DELETE /api/admin/cms/email-logs/:logId`
+
+Deletes an audited email log and writes a deletion audit record. Derived contact logs
+cannot be deleted because they are computed from contact submission columns.
+
+## Page Supported Fields
 
 - `title`: required on create, optional on update.
 - `slug`: optional. If omitted on create, the server derives it from `title`.
@@ -358,6 +666,9 @@ Response shape:
 - Changing the slug of an already published page creates a 301 redirect from the old path.
 - Public rendering only exposes pages with `status: "PUBLISHED"`.
 - The response includes `editPath`, `previewPath`, and `publicPath` when published.
+- Order create/update/cancel endpoints use the existing order workflow helpers so pricing, deposits, availability, notifications, and audit logs stay server-authoritative.
+- User deletion is rejected when attached orders exist.
+- Email logs are partly derived data: audited logs can be deleted, contact-derived logs cannot.
 
 ## Markdown Blocks
 
@@ -400,6 +711,6 @@ CTA button:
 
 - `400`: invalid JSON, invalid payload, reserved slug, or other validation issue.
 - `401`: missing/invalid admin session or bearer token.
-- `404`: single-page get/update target page not found.
+- `404`: single-resource target page, order, user, or email log not found.
 - `409`: duplicate slug.
 - `500`: bearer auth configured without a valid admin actor, or media storage unavailable.
